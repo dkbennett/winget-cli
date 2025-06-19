@@ -12,7 +12,12 @@ For [#166](https://github.com/microsoft/winget-cli/issues/166)
 ## Abstract
 This spec outlines the design for supporting the installation of fonts.
 
-## Context
+## Inspiration
+
+This has been a longstanding top customer request!
+
+## Solution Design
+
 
 ### Font File Types
 
@@ -28,11 +33,35 @@ The following font types to my knowledge are not supported:
 > Font types will not be treated differently. Support for font installation will be determined by calling [IDWriteFontFile::Analyze](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/nf-dwrite-idwritefontfile-analyze).
 
 ### Installing Fonts
+
+Fonts are normally installed in two locations:
+- `%WINDIR%\Fonts` (Machine)
+- `%LOCALAPPDATA%\Microsoft\Windows\Fonts` (Per User)
+
+However, fonts can be stored in any location and it is the registry definitions that determine which fonts are for the machine and the user, along with proper permissions set on the registry and folders such that applications can read and load the fonts:
+- `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts` (Machine)
+- `HKCU\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts` (User)
+
+Font install supports per-machine and per-user installation. Due to fonts being installable from many sources and typically all into the same set of folders we have a very high risk of collision, and the problem if not knowing which fonts WinGet installed or from which packages a given font belongs. This makes uninstall, repair, or even knowing what fonts have been installed very difficult.
+
+To address these problems and achieve modern deployment semantics such as rollback of a failed install, repair, and clean uninstall, WinGet-installed fonts will use an installation scheme similar to MSIX-deployed fonts. MSIX-deployed fonts reside in the package location and have a sub-key named by the package in the registry. WinGet will use a similar folder and subkey naming scheme to isolate the fonts and achieve near-zero risk of collision. This allow allows clean install/uninstall/repair/etc.
+
+WinGet will create subfolder and subkeys for font installation, with appropriate permissions set such that all applications and packages can read them. WinGet will create a root folder/subkey named "winget_1" which is not a valid package name so it will not collide with MSIX packages. This name is also a schema version, so should the font installation design change in the future we can create a new folder or increment the version and do migration if necessary. The folder name is intentionally short to lower the risk of MAX_PATH issues
+
+For Machine-installed fonts:
+- Fonts installed to: `%WINDIR%\Fonts\winget_1\<packagename>\`
+- Registry: `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts\winget_1\<packagename>`
+
+For Per-User-installed fonts:
+- Fonts installed to: `%LOCALAPPDATA%\Microsoft\Windows\Fonts\winget_1\<packagename>\`
+- Registry: `HKCU\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts\winget_1\<packagename>`
+
+
 Typically, a user would download the font file and drag it to the `C:\Windows\Fonts` directory in the explorer view, but there are a couple things happening behind the scenes.
 
-Depending on the scope of the user, the font will be stored in two locations:
-- `C:\Windows\Fonts` (Machine )
-- `%LOCALAPPDATA%\Microsoft\Windows\Fonts` (User Mode)
+
+
+
 
 In addition, a new registry entry is created in the following registry paths:
 The name of the registry key typically matches the title of the font file, and the value is set to the path of the font file.
